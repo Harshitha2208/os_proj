@@ -90,6 +90,7 @@ void user_register(){
 int main() {
     bool sync = false;
     const char *filename = "user.txt";
+    int new_user;
 
     FILE *file = fopen(filename, "r");
     int firstCharacter = fgetc(file);
@@ -104,7 +105,13 @@ int main() {
         hash();
     } 
     else if(firstCharacter>=33){
-        sync=true;
+        printf("\n\n1 - Register\n2 - Authenticate\n");
+        scanf("%d",&new_user);
+        switch(new_user){
+            case 1 : hash();break;
+            case 2 : authenticate_user(); sync=true;break;
+            default:printf("choice out of scope\n");
+        }
     }
 
 
