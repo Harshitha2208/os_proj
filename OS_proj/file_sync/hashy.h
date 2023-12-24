@@ -1,23 +1,17 @@
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-
-#define SHA256_BLOCK_SIZE 64
-
-// SHA-256 context structure
-struct sha256_ctx {
-    uint32_t state[8];
-    uint64_t count;
-    uint8_t buffer[SHA256_BLOCK_SIZE];
-};
-
-// Function prototypes
-void sha256_init(struct sha256_ctx *ctx);
-void sha256_update(struct sha256_ctx *ctx, const uint8_t *data, size_t len);
-void sha256_final(struct sha256_ctx *ctx, uint8_t *hash);
-
-// SHA-256 constants
-static const uint32_t k[64] = {
+#define MAX_USERNAME_LENGTH 50
+#define MAX_PASSWORD_LENGTH 50
+#define ROTRIGHT(word, bits) (((word) >> (bits)) | ((word) << (32 - (bits))))
+#define CH(x, y, z) (((x) & (y)) ^ (~(x) & (z)))
+#define MAJ(x, y, z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
+#define EP0(x) (ROTRIGHT(x, 2) ^ ROTRIGHT(x, 13) ^ ROTRIGHT(x, 22))
+#define EP1(x) (ROTRIGHT(x, 6) ^ ROTRIGHT(x, 11) ^ ROTRIGHT(x, 25))
+#define SIG0(x) (ROTRIGHT(x, 7) ^ ROTRIGHT(x, 18) ^ ((x) >> 3))
+#define SIG1(x) (ROTRIGHT(x, 17) ^ ROTRIGHT(x, 19) ^ ((x) >> 10))
+const uint32_t k[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
     0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
@@ -35,116 +29,210 @@ static const uint32_t k[64] = {
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 };
+void sha256(const char *message, uint32_t hash[8]) {
+    uint32_t w[64];
+    uint32_t a, b, c, d, e, f, g, h;
+    uint32_t temp1, temp2;
+    int t;
 
+    // Initialize hash values
+    hash[0] = 0x6a09e667;
+    hash[1] = 0xbb67ae85;
+    hash[2] = 0x3c6ef372;
+    hash[3] = 0xa54ff53a;
+    hash[4] = 0x510e527f;
+    hash[5] = 0x9b05688c;
+    hash[6] = 0x1f83d9ab;
+    hash[7] = 0x5be0cd19;
 
-// SHA-256 functions
-#define Ch(x, y, z) (((x) & (y)) ^ ((~(x)) & (z)))
-#define Maj(x, y, z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
-#define S(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
-#define R(x, n) ((x) >> (n))
-#define Sigma0(x) (S(x, 2) ^ S(x, 13) ^ S(x, 22))
-#define Sigma1(x) (S(x, 6) ^ S(x, 11) ^ S(x, 25))
-#define sigma0(x) (S(x, 7) ^ S(x, 18) ^ R(x, 3))
-#define sigma1(x) (S(x, 17) ^ S(x, 19) ^ R(x, 10))
+    // Pre-processing
+    size_t initial_len = strlen(message);
+    size_t new_len = ((initial_len + 8) / 64 + 1) * 64;
+    uint8_t *msg = malloc(new_len);
+    memcpy(msg, message, initial_len);
+    msg[initial_len] = 0x80;  // Padding: Add a single '1' bit
+    for (size_t i = initial_len + 1; i < new_len - 8; i++)
+        msg[i] = 0;  // Padding: Add zeros
+    uint64_t bit_len = initial_len * 8;
+    memcpy(msg + new_len - 8, &bit_len, 8);  // Append the original length in bits
 
-// SHA-256 initialization
-void sha256_init(struct sha256_ctx *ctx) {
-    ctx->state[0] = 0x6a09e667;
-    ctx->state[1] = 0xbb67ae85;
-    ctx->state[2] = 0x3c6ef372;
-    ctx->state[3] = 0xa54ff53a;
-    ctx->state[4] = 0x510e527f;
-    ctx->state[5] = 0x9b05688c;
-    ctx->state[6] = 0x1f83d9ab;
-    ctx->state[7] = 0x5be0cd19;
-    ctx->count = 0;
-}
+    // Process each 512-bit block
+    for (size_t i = 0; i < new_len; i += 64) {
+        // Prepare the message schedule
+        for (t = 0; t < 16; t++)
+            w[t] = (msg[i + t * 4] << 24) | (msg[i + t * 4 + 1] << 16) | (msg[i + t * 4 + 2] << 8) | (msg[i + t * 4 + 3]);
 
-// SHA-256 update
-void sha256_update(struct sha256_ctx *ctx, const uint8_t *data, size_t len) {
-    size_t i;
+        for (t = 16; t < 64; t++)
+            w[t] = SIG1(w[t - 2]) + w[t - 7] + SIG0(w[t - 15]) + w[t - 16];
 
-    for (i = 0; i < len; ++i) {
-        ctx->buffer[(ctx->count % SHA256_BLOCK_SIZE)] = data[i];
-        ++ctx->count;
-        if ((ctx->count % SHA256_BLOCK_SIZE) == 0) {
-            // Block complete, process it
-            // (Note: This part is simplified for clarity. It doesn't handle message length extension attacks.)
-            // TODO: Implement the actual SHA-256 block processing
-            // ...
+        // Initialize working variables to the current hash value
+        a = hash[0];
+        b = hash[1];
+        c = hash[2];
+        d = hash[3];
+        e = hash[4];
+        f = hash[5];
+        g = hash[6];
+        h = hash[7];
 
-            // Reset buffer
-            memset(ctx->buffer, 0, SHA256_BLOCK_SIZE);
+        // Main loop
+        for (t = 0; t < 64; t++) {
+            temp1 = h + EP1(e) + CH(e, f, g) + w[t] + k[t]; // Fix: Removed k[t] from this line
+            temp2 = EP0(a) + MAJ(a, b, c);
+            h = g;
+            g = f;
+            f = e;
+            e = d + temp1;
+            d = c;
+            c = b;
+            b = a;
+            a = temp1 + temp2;
         }
+
+        // Update hash value
+        hash[0] += a;
+        hash[1] += b;
+        hash[2] += c;
+        hash[3] += d;
+        hash[4] += e;
+        hash[5] += f;
+        hash[6] += g;
+        hash[7] += h;
     }
+
+    // Free dynamically allocated memory
+    free(msg);
 }
 
-// SHA-256 finalization
-void sha256_final(struct sha256_ctx *ctx, uint8_t *hash) {
-    // TODO: Implement the finalization steps
-    // (Note: This part is simplified for clarity. It doesn't handle message length extension attacks.)
-    // ...
+int hash() {
+    char username[50];
+    printf("Enter your username: ");
+    scanf("%s", username);
 
-    // Placeholder: Copy the state as the hash
-    memcpy(hash, ctx->state, sizeof(ctx->state));
-}
-
-// Convert hash to hexadecimal string
-void hash_to_string(const uint8_t *hash, char *output) {
-    for (int i = 0; i < 32; i++) {
-        sprintf(output + 2 * i, "%02x", hash[i]);
+    FILE *userFile = fopen("user.txt", "a");
+    if (userFile == NULL) {
+        printf("Error opening user file. Exiting.\n");
+        return 1; // Exit with an error code
     }
-}
 
-void hash() {
-    char password[20];
-    char confirm_password[20];
-    char username[20];
-    printf("enter username : ");
-    scanf("%s",username);
-    printf("enter password : ");
-    scanf("%s",password);
-    printf("confirm password : ");
-    scanf("%s",confirm_password);
-    if(strcmp(password,confirm_password)!=0){
-        printf("registration successful\n\n");
+    // Print the username to the user file
+    fprintf(userFile, "%s\n", username);
+
+    // Close the user file
+    fclose(userFile);
+    char password[50];
+    char confirm_password[50];
+
+    // Input password
+    printf("Enter your password: ");
+    scanf("%s", password);
+
+    // Input confirmation
+    printf("Confirm your password: ");
+    scanf("%s", confirm_password);
+
+    // Check if passwords match
+    if (strcmp(password, confirm_password) != 0) {
+        printf("Passwords do not match. Exiting.\n");
+        return 1; // Exit with an error code
     }
-    struct sha256_ctx ctx;
-    uint8_t hash[32];  // SHA-256 produces a 256-bit hash (32 bytes)
-    char hash_string[65];  // 2 characters per byte plus null terminator
 
-    // Initialize SHA-256 context
-    sha256_init(&ctx);
-
-    // Update context with input string
-    sha256_update(&ctx, (const uint8_t *)password, strlen(password));
-
-    // Finalize and obtain hash
-    sha256_final(&ctx, hash);
-
-    // Convert hash to hexadecimal string
-    hash_to_string(hash, hash_string);
-    char hashed[66];
-    strcpy(hashed, hash_string);
-    strcat(hashed, "\n");
-    printf("%s",hashed);
-    printf("test");
-   // hash_string
-    FILE *file;
+    // Hash the password
+    uint32_t hash[8];
+    sha256(password, hash);
 
     // Open the file in append mode
-    file = fopen("pass.txt", "a");
-
-    // Check if the file is successfully opened
+    FILE *file = fopen("pass.txt", "a");
     if (file == NULL) {
-        printf("Unable to open the file for appending.\n");
-
+        printf("Error opening file. Exiting.\n");
+        return 1; // Exit with an error code
     }
-    fprintf(file,hashed);
+
+    // Print the hashed password to the file
+    for (int i = 0; i < 8; i++) {
+        fprintf(file, "%08x", hash[i]);
+    }
+    fprintf(file, "\n");
 
     // Close the file
     fclose(file);
 
-    printf("Content appended successfully.\n");
+    printf("Password hashed and saved to pass.txt.\n");
 
+    return 0;
+}
+bool authenticate_user() {
+    char entered_username[MAX_USERNAME_LENGTH];
+    char entered_password[MAX_PASSWORD_LENGTH];
+
+    // Input username and password for authentication
+    printf("Enter your username: ");
+    scanf("%s", entered_username);
+    printf("Enter your password: ");
+    scanf("%s", entered_password);
+    
+    // Open user file for reading
+    FILE *userFile = fopen("user.txt", "r");
+    if (userFile == NULL) {
+        perror("Error opening user file");
+        exit(EXIT_FAILURE);
+    }
+
+    // Open password file for reading
+    FILE *passFile = fopen("pass.txt", "r");
+    if (passFile == NULL) {
+        perror("Error opening password file");
+        fclose(userFile);
+        exit(EXIT_FAILURE);
+    }
+
+    char username[MAX_USERNAME_LENGTH];
+    char hashed_password[MAX_PASSWORD_LENGTH];
+
+    bool user_found = false;
+
+    // Read each line from user file
+    while (fscanf(userFile, "%s", username) == 1) {
+        // Check if the entered username matches
+        if (strcmp(username, entered_username) == 0) {
+            user_found = true;
+            
+            // Read the hashed password from the same line in the password file
+            fscanf(passFile, "%s", hashed_password);
+
+            // Hash the entered password
+            uint32_t entered_password_hash[8];
+            sha256(entered_password, entered_password_hash);
+
+            // Compare the hashed passwords
+            char entered_password_hex[65];
+            for (int i = 0; i < 8; i++) {
+                sprintf(entered_password_hex + i * 8, "%08x", entered_password_hash[i]);
+            }
+
+            if (strcmp(hashed_password, entered_password_hex) == 0) {
+                printf("Authentication successful!\n");
+                fclose(userFile);
+                fclose(passFile);
+                return true;
+            } else {
+                printf("Authentication failed. Incorrect password.\n");
+                fclose(userFile);
+                fclose(passFile);
+                return false;
+            }
+        }
+
+        // Move to the next line in the password file
+        fscanf(passFile, "%*[^\n]"); // Skip the rest of the line
+    }
+
+    fclose(userFile);
+    fclose(passFile);
+
+    if (!user_found) {
+        printf("User not found.\n");
+    }
+
+    return false;
 }
